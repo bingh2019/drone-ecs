@@ -221,6 +221,11 @@ func main() {
 			Usage:  "ECS volume definitions",
 			EnvVar: "PLUGIN_VOLUMES",
 		},
+		cli.StringSliceFlag{
+			Name: "task-definition-tags",
+			Usage: "Task definition tags",
+			EnvVar: "PLUGIN_TASK_DEFINITION_TAGS",
+		},
 	}
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
@@ -268,6 +273,7 @@ func run(c *cli.Context) error {
 		Ulimits:                      c.StringSlice("ulimits"),
 		MountPoints:                  c.StringSlice("mount-points"),
 		Volumes:                      c.StringSlice("volumes"),
+		TaskDefinitionTags:			  c.StringSlice("task-definition-tags"),
 	}
 	return plugin.Exec()
 }

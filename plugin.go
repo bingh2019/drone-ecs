@@ -61,6 +61,8 @@ type Plugin struct {
 	// ServiceNetworkSubnets represents the VPC security groups to use when
 	// running awsvpc network mode.
 	ServiceNetworkSubnets []string
+
+	TaskDefinitionTags	[]string
 }
 
 const (
@@ -325,6 +327,27 @@ func (p *Plugin) Exec() error {
 	}
 
 	val := *(resp.TaskDefinition.TaskDefinitionArn)
+
+	var taskDefinitionTags []*ecs.Tag
+	for _, tag := range p.TaskDefinitionTags {
+		parts := strings.SplitN(tag, "=", 2)
+		key := parts[0]
+		value := parts[1]
+		taskDefinitionTags = append(taskDefinitionTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+	fmt.Println(taskDefinitionTags)
+	fmt.Println(val)
+	if len(taskDefinitionTags) != 0 {
+		taskDefinitionTagsInput := &ecs.TagResourceInput{
+			ResourceArn: aws.String(val),
+			Tags: taskDefinitionTags,
+		}
+		result, tag_err := svc.TagResource(taskDefinitionTagsInput)
+		if tag_err != nil {
+			return tag_err
+		}
+		fmt.Println(result)
+	}
 	sparams := &ecs.UpdateServiceInput{
 		Cluster:              aws.String(p.Cluster),
 		Service:              aws.String(p.Service),
