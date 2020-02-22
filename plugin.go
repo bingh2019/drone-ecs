@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/cloudwatchevents"
 	"github.com/aws/aws-sdk-go/service/ecs"
 )
 
@@ -62,7 +64,39 @@ type Plugin struct {
 	// running awsvpc network mode.
 	ServiceNetworkSubnets []string
 
-	TaskDefinitionTags	[]string
+	TaskDefinitionTags []string
+	ScheduledTasks     string
+}
+
+// https://docs.aws.amazon.com/sdk-for-go/api/service/cloudwatchevents/#PutRuleInput
+type CloudWatchEventRule struct {
+	Description string `json:"description"`
+	Name        string `json:"name"`
+	//EventBusName string `json:"event_bus"`
+	//RoleArn string `json:"role_arn"`
+	//Tags []string `json:tags`
+	ScheduledExpression string `json:"scheduled_expression"`
+}
+
+// https://docs.aws.amazon.com/sdk-for-go/api/service/cloudwatchevents/#Target
+type CloudWatchEventTarget struct {
+	Id                    string   `json:"id"`
+	ClusterArn            string   `json:"cluster_arn"`
+	Input                 string   `json:"input"`
+	LaunchType            string   `json:"launch_type"`
+	NetworkSecurityGroups []string `json:"network_security_groups"`
+	NetworkSubnets        []string `json:"network_subnets"`
+	RoleArn               string   `json:"role_arn"`
+	TaskCount             int64    `json:"task_count"`
+	PlatformVersion       string   `json:"platform_version"`
+	Group                 string   `json:"group"`
+	NetworkAssignPublicIP string   `json:"network_assign_public_ip"`
+}
+
+// https://docs.aws.amazon.com/sdk-for-go/api/service/cloudwatchevents/#PutTargetsInput
+type CloudWatchEventRuleAndTargets struct {
+	Rule    CloudWatchEventRule     `json:rule`
+	Targets []CloudWatchEventTarget `json:targets`
 }
 
 const (
@@ -326,21 +360,22 @@ func (p *Plugin) Exec() error {
 		return err
 	}
 
-	val := *(resp.TaskDefinition.TaskDefinitionArn)
+	taskDefinitionArn := *(resp.TaskDefinition.TaskDefinitionArn)
 
 	var taskDefinitionTags []*ecs.Tag
 	for _, tag := range p.TaskDefinitionTags {
 		parts := strings.SplitN(tag, "=", 2)
 		key := parts[0]
 		value := parts[1]
+		fmt.Println(parts)
+		fmt.Println(key)
+		fmt.Println(value)
 		taskDefinitionTags = append(taskDefinitionTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
-	fmt.Println(taskDefinitionTags)
-	fmt.Println(val)
 	if len(taskDefinitionTags) != 0 {
 		taskDefinitionTagsInput := &ecs.TagResourceInput{
-			ResourceArn: aws.String(val),
-			Tags: taskDefinitionTags,
+			ResourceArn: aws.String(taskDefinitionArn),
+			Tags:        taskDefinitionTags,
 		}
 		result, tag_err := svc.TagResource(taskDefinitionTagsInput)
 		if tag_err != nil {
@@ -351,7 +386,7 @@ func (p *Plugin) Exec() error {
 	sparams := &ecs.UpdateServiceInput{
 		Cluster:              aws.String(p.Cluster),
 		Service:              aws.String(p.Service),
-		TaskDefinition:       aws.String(val),
+		TaskDefinition:       aws.String(taskDefinitionArn),
 		NetworkConfiguration: p.setupServiceNetworkConfiguration(),
 	}
 
@@ -381,11 +416,17 @@ func (p *Plugin) Exec() error {
 
 	sresp, serr := svc.UpdateService(sparams)
 	if serr != nil {
+		fmt.Println("update service error", serr)
 		return serr
+	} else {
+		fmt.Println("update service successfully", sresp)
 	}
 
-	fmt.Println(sresp)
-	fmt.Println(resp)
+	scheduled_tasks_err := p.updateScheduledTasks(taskDefinitionArn)
+	if scheduled_tasks_err != nil {
+		fmt.Println("scheduled tasks error", scheduled_tasks_err)
+		return scheduled_tasks_err
+	}
 	return nil
 }
 
@@ -411,4 +452,112 @@ func (p *Plugin) setupServiceNetworkConfiguration() *ecs.NetworkConfiguration {
 	}
 
 	return &netConfig
+}
+
+func (p *Plugin) setupScheduledTaskServiceNetworkConfiguration(assignPublicIp string, subnets []string, securityGroups []string) *cloudwatchevents.NetworkConfiguration {
+	netConfig := cloudwatchevents.NetworkConfiguration{AwsvpcConfiguration: &cloudwatchevents.AwsVpcConfiguration{}}
+
+	if p.NetworkMode != ecs.NetworkModeAwsvpc {
+		return nil
+	}
+	if len(assignPublicIp) != 0 {
+		netConfig.AwsvpcConfiguration.SetAssignPublicIp(assignPublicIp)
+	}
+
+	if len(subnets) > 0 {
+		netConfig.AwsvpcConfiguration.SetSubnets(aws.StringSlice(subnets))
+	}
+
+	if len(securityGroups) > 0 {
+		netConfig.AwsvpcConfiguration.SetSecurityGroups(aws.StringSlice(securityGroups))
+	}
+
+	return &netConfig
+}
+
+func (p *Plugin) updateScheduledTasks(taskDefinitionArn string) error {
+	scheduledTasks := p.ScheduledTasks
+	if len(scheduledTasks) == 0 {
+		return nil
+	}
+	var tasks []CloudWatchEventRuleAndTargets
+	err := json.Unmarshal([]byte(scheduledTasks), &tasks)
+	if err != nil {
+		fmt.Println("parse scheduled tasks configuration error", err)
+		return err
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	awsConfig := aws.Config{}
+	if len(p.Key) != 0 && len(p.Secret) != 0 {
+		awsConfig.Credentials = credentials.NewStaticCredentials(p.Key, p.Secret, "")
+	}
+	awsConfig.Region = aws.String(p.Region)
+	cloudWatchEventService := cloudwatchevents.New(session.New(&awsConfig))
+
+	for _, t := range tasks {
+		rule := t.Rule
+		targets := t.Targets
+		putRuleInput := cloudwatchevents.PutRuleInput{
+			Name:               aws.String(rule.Name),
+			ScheduleExpression: aws.String(rule.ScheduledExpression),
+		}
+		if len(rule.Description) != 0 {
+			putRuleInput.Description = aws.String(rule.Description)
+		}
+		fmt.Println("put rule", putRuleInput)
+		putRuleResult, err := cloudWatchEventService.PutRule(&putRuleInput)
+		if err != nil {
+			fmt.Println("put rule error", err)
+			return err
+		} else {
+			fmt.Println("put rule successfully", putRuleResult)
+		}
+		var ruleTargets []*cloudwatchevents.Target
+		for _, target := range targets {
+			networkConfiguration := p.setupScheduledTaskServiceNetworkConfiguration(
+				target.NetworkAssignPublicIP,
+				target.NetworkSubnets,
+				target.NetworkSecurityGroups)
+			ecsParameters := cloudwatchevents.EcsParameters{
+				LaunchType:           aws.String(target.LaunchType),
+				TaskCount:            aws.Int64(target.TaskCount),
+				TaskDefinitionArn:    aws.String(taskDefinitionArn),
+				NetworkConfiguration: networkConfiguration,
+			}
+			if len(target.Group) != 0 {
+				ecsParameters.Group = aws.String(target.Group)
+			}
+			if strings.ToUpper(target.LaunchType) == ecs.LaunchTypeFargate {
+				if len(target.PlatformVersion) != 0 {
+					ecsParameters.PlatformVersion = aws.String(target.PlatformVersion)
+				} else {
+					ecsParameters.PlatformVersion = aws.String("LATEST")
+				}
+			}
+			t := cloudwatchevents.Target{
+				Arn:           aws.String(target.ClusterArn),
+				Id:            aws.String(target.Id),
+				RoleArn:       aws.String(target.RoleArn),
+				Input:         aws.String(target.Input),
+				EcsParameters: &ecsParameters,
+			}
+			ruleTargets = append(ruleTargets, &t)
+		}
+		putTargetsInput := cloudwatchevents.PutTargetsInput{
+			Rule:    aws.String(rule.Name),
+			Targets: ruleTargets,
+		}
+		fmt.Println("put targets to rule", putTargetsInput)
+		putTargetsResult, err := cloudWatchEventService.PutTargets(&putTargetsInput)
+		if err != nil {
+			fmt.Println("put targets error", err)
+			return err
+		} else {
+			fmt.Println("put targets successfully", putTargetsResult)
+		}
+	}
+	return nil
 }

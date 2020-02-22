@@ -226,6 +226,11 @@ func main() {
 			Usage: "Task definition tags",
 			EnvVar: "PLUGIN_TASK_DEFINITION_TAGS",
 		},
+		cli.StringFlag{
+			Name: "scheduled-tasks",
+			Usage: "Scheduled tasks to the current cluster",
+			EnvVar: "PLUGIN_SCHEDULED_TASKS",
+		},
 	}
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
@@ -274,6 +279,7 @@ func run(c *cli.Context) error {
 		MountPoints:                  c.StringSlice("mount-points"),
 		Volumes:                      c.StringSlice("volumes"),
 		TaskDefinitionTags:			  c.StringSlice("task-definition-tags"),
+		ScheduledTasks:				  c.String("scheduled-tasks"),
 	}
 	return plugin.Exec()
 }
