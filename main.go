@@ -226,6 +226,11 @@ func main() {
 			Usage: "Task definition tags",
 			EnvVar: "PLUGIN_TASK_DEFINITION_TAGS",
 		},
+		cli.StringSliceFlag{
+			Name: "task-tags",
+			Usage: "Task tags",
+			EnvVar: "PLUGIN_TASK_TAGS",
+		},
 	}
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
@@ -274,6 +279,7 @@ func run(c *cli.Context) error {
 		MountPoints:                  c.StringSlice("mount-points"),
 		Volumes:                      c.StringSlice("volumes"),
 		TaskDefinitionTags:			  c.StringSlice("task-definition-tags"),
+		TaskTags: c.StringSlice("task-tags"),
 	}
 	return plugin.Exec()
 }
