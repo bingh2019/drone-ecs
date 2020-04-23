@@ -222,14 +222,19 @@ func main() {
 			EnvVar: "PLUGIN_VOLUMES",
 		},
 		cli.StringSliceFlag{
-			Name: "task-definition-tags",
-			Usage: "Task definition tags",
+			Name:   "task-definition-tags",
+			Usage:  "Task definition tags",
 			EnvVar: "PLUGIN_TASK_DEFINITION_TAGS",
 		},
 		cli.StringSliceFlag{
-			Name: "task-tags",
-			Usage: "Task tags",
+			Name:   "task-tags",
+			Usage:  "Task tags",
 			EnvVar: "PLUGIN_TASK_TAGS",
+		},
+		cli.StringFlag{
+			Name:   "scheduled-tasks",
+			Usage:  "Scheduled tasks to the current cluster",
+			EnvVar: "PLUGIN_SCHEDULED_TASKS",
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
@@ -278,8 +283,9 @@ func run(c *cli.Context) error {
 		Ulimits:                      c.StringSlice("ulimits"),
 		MountPoints:                  c.StringSlice("mount-points"),
 		Volumes:                      c.StringSlice("volumes"),
-		TaskDefinitionTags:			  c.StringSlice("task-definition-tags"),
-		TaskTags: c.StringSlice("task-tags"),
+		TaskDefinitionTags:           c.StringSlice("task-definition-tags"),
+		TaskTags:                     c.StringSlice("task-tags"),
+		ScheduledTasks:               c.String("scheduled-tasks"),
 	}
 	return plugin.Exec()
 }
