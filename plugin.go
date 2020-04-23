@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchevents"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 )
 
 type Plugin struct {
@@ -415,8 +416,11 @@ func (p *Plugin) Exec() error {
 	}
 
 	sresp, serr := svc.UpdateService(sparams)
+	fmt.Println("update service input", sparams)
 	if serr != nil {
-		fmt.Println("update service error", serr)
+		aerr, ok := serr.(awserr.Error)
+		fmt.Println(ok)
+		fmt.Println("update service error", aerr.Code(), aerr.Message(), aerr.Error())
 		return serr
 	} else {
 		fmt.Println("update service successfully", sresp)
@@ -427,6 +431,7 @@ func (p *Plugin) Exec() error {
 		fmt.Println("scheduled tasks error", scheduled_tasks_err)
 		return scheduled_tasks_err
 	}
+	fmt.Println("new code!")
 	return nil
 }
 
@@ -517,15 +522,20 @@ func (p *Plugin) updateScheduledTasks(taskDefinitionArn string) error {
 		}
 		var ruleTargets []*cloudwatchevents.Target
 		for _, target := range targets {
-			networkConfiguration := p.setupScheduledTaskServiceNetworkConfiguration(
-				target.NetworkAssignPublicIP,
-				target.NetworkSubnets,
-				target.NetworkSecurityGroups)
+			// networkConfiguration := p.setupScheduledTaskServiceNetworkConfiguration(
+			// 	target.NetworkAssignPublicIP,
+			// 	target.NetworkSubnets,
+			// 	target.NetworkSecurityGroups)
 			ecsParameters := cloudwatchevents.EcsParameters{
 				LaunchType:           aws.String(target.LaunchType),
 				TaskCount:            aws.Int64(target.TaskCount),
 				TaskDefinitionArn:    aws.String(taskDefinitionArn),
-				NetworkConfiguration: networkConfiguration,
+			}
+			if (len(target.NetworkAssignPublicIP) != 0) || (len(target.NetworkSubnets) != 0 || len(target.NetworkSecurityGroups) !=0) {
+				ecsParameters.NetworkConfiguration = p.setupScheduledTaskServiceNetworkConfiguration(
+					target.NetworkAssignPublicIP,
+					target.NetworkSubnets,
+					target.NetworkSecurityGroups)
 			}
 			if len(target.Group) != 0 {
 				ecsParameters.Group = aws.String(target.Group)
