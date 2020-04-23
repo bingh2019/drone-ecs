@@ -393,13 +393,30 @@ func (p *Plugin) Exec() error {
 		taskTags = append(taskTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
 	fmt.Printf("task tags %p\n", taskTags)
+	fmt.Println("begin tot list tasks")
+	listTaskInput := &ecs.ListTasksInput{
+		Cluster:     aws.String(p.Cluster),
+		Family:      aws.String(p.Family),
+		ServiceName: sresp.Service.ServiceName,
+	}
+	listTaskOutput, err := svc.ListTasks(listTaskInput)
+	if err!=nil{
+		fmt.Printf("list tasks error:%s",err.Error())
+		return err
+	}
+	ans := listTaskOutput.TaskArns
+
+	for listTaskOutput.NextToken != nil {
+		// TODO append(ans,fetched_ans)
+		fmt.Println("need fetch next page tasks")
+	}
 	if len(taskTags) != 0 {
-		tasks := sresp.Service.TaskSets
-		for _, task := range tasks {
+		for _, arn := range ans {
 			taskTagsInput := &ecs.TagResourceInput{
-				ResourceArn: aws.String(*task.TaskSetArn),
+				ResourceArn: arn,
 				Tags:        taskTags,
 			}
+			fmt.Printf("begin tag resource %s",arn)
 			result, tag_err := svc.TagResource(taskTagsInput)
 			if tag_err != nil {
 				fmt.Println(tag_err.Error())
