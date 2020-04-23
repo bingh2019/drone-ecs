@@ -62,7 +62,9 @@ type Plugin struct {
 	// running awsvpc network mode.
 	ServiceNetworkSubnets []string
 
-	TaskDefinitionTags	[]string
+	TaskDefinitionTags []string
+
+	TaskTags []string
 }
 
 const (
@@ -114,7 +116,6 @@ func (p *Plugin) Exec() error {
 		//WorkingDirectory: aws.String("String"),
 	}
 	volumes := []*ecs.Volume{}
-
 	if p.CPU != 0 {
 		definition.Cpu = aws.Int64(p.CPU)
 	}
@@ -325,9 +326,9 @@ func (p *Plugin) Exec() error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(resp)
 
 	val := *(resp.TaskDefinition.TaskDefinitionArn)
-
 	var taskDefinitionTags []*ecs.Tag
 	for _, tag := range p.TaskDefinitionTags {
 		parts := strings.SplitN(tag, "=", 2)
@@ -340,7 +341,7 @@ func (p *Plugin) Exec() error {
 	if len(taskDefinitionTags) != 0 {
 		taskDefinitionTagsInput := &ecs.TagResourceInput{
 			ResourceArn: aws.String(val),
-			Tags: taskDefinitionTags,
+			Tags:        taskDefinitionTags,
 		}
 		result, tag_err := svc.TagResource(taskDefinitionTagsInput)
 		if tag_err != nil {
@@ -354,7 +355,6 @@ func (p *Plugin) Exec() error {
 		TaskDefinition:       aws.String(val),
 		NetworkConfiguration: p.setupServiceNetworkConfiguration(),
 	}
-
 	if p.DesiredCount >= 0 {
 		sparams.DesiredCount = aws.Int64(p.DesiredCount)
 	}
@@ -383,9 +383,30 @@ func (p *Plugin) Exec() error {
 	if serr != nil {
 		return serr
 	}
-
 	fmt.Println(sresp)
-	fmt.Println(resp)
+	fmt.Println("check task tag")
+	var taskTags []*ecs.Tag
+	for _, tag := range p.TaskTags {
+		parts := strings.SplitN(tag, "=", 2)
+		key := parts[0]
+		value := parts[1]
+		taskTags = append(taskTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+	fmt.Println("task tags %p", taskTags)
+	if len(taskTags) != 0 {
+		tasks := sresp.Service.TaskSets
+		for _, task := range tasks {
+			taskTagsInput := &ecs.TagResourceInput{
+				ResourceArn: aws.String(*task.TaskSetArn),
+				Tags:        taskTags,
+			}
+			result, tag_err := svc.TagResource(taskTagsInput)
+			if tag_err != nil {
+				return tag_err
+			}
+			fmt.Println(result)
+		}
+	}
 	return nil
 }
 
