@@ -392,7 +392,7 @@ func (p *Plugin) Exec() error {
 		value := parts[1]
 		taskTags = append(taskTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
-	fmt.Println("task tags %p", taskTags)
+	fmt.Printf("task tags %p\n", taskTags)
 	if len(taskTags) != 0 {
 		tasks := sresp.Service.TaskSets
 		for _, task := range tasks {
@@ -402,6 +402,7 @@ func (p *Plugin) Exec() error {
 			}
 			result, tag_err := svc.TagResource(taskTagsInput)
 			if tag_err != nil {
+				fmt.Println(tag_err.Error())
 				return tag_err
 			}
 			fmt.Println(result)
