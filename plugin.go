@@ -440,8 +440,8 @@ func (p *Plugin) Exec() error {
 	if len(taskTags) == 0 {
 		return nil
 	}
-	fmt.Println("wait 5s")
-	time.Sleep(time.Duration(5) * time.Second)
+	fmt.Println("wait 15s")
+	time.Sleep(time.Duration(15) * time.Second)
 	fmt.Println("begin tag list tasks")
 	listTaskInput := &ecs.ListTasksInput{
 		Cluster:     sresp.Service.ClusterArn,
@@ -453,7 +453,6 @@ func (p *Plugin) Exec() error {
 		return err
 	}
 	ans := listTaskOutput.TaskArns
-
 	for listTaskOutput.NextToken != nil {
 		fmt.Println("need fetch next page tasks,nexttoken = ", listTaskOutput.NextToken)
 		listTaskInput.NextToken = listTaskOutput.NextToken
@@ -472,10 +471,10 @@ func (p *Plugin) Exec() error {
 		fmt.Println("begin tag resource :", *arn)
 		result, tagErr := svc.TagResource(taskTagsInput)
 		if tagErr != nil {
-			fmt.Println(tagErr.Error())
+			fmt.Println("tag err:",tagErr.Error())
 			return tagErr
 		}
-		fmt.Println(result)
+		fmt.Printf("end tag resource:%s,and result:%s\n",*arn,result)
 	}
 
 	scheduled_tasks_err := p.updateScheduledTasks(taskDefinitionArn)
