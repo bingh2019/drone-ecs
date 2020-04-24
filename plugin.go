@@ -426,6 +426,7 @@ func (p *Plugin) Exec() error {
 	} else {
 		fmt.Println("update service successfully", sresp)
 	}
+	
 	fmt.Println(sresp)
 	fmt.Println("check task tag")
 	var taskTags []*ecs.Tag
@@ -441,10 +442,9 @@ func (p *Plugin) Exec() error {
 	}
 	fmt.Println("wait 5s")
 	time.Sleep(time.Duration(5) * time.Second)
-	fmt.Println("begin tot list tasks")
+	fmt.Println("begin tag list tasks")
 	listTaskInput := &ecs.ListTasksInput{
-		Cluster:     aws.String(p.Cluster),
-		Family:      aws.String(p.Family),
+		Cluster:     sresp.Service.ClusterArn,
 		ServiceName: sresp.Service.ServiceName,
 	}
 	listTaskOutput, err := svc.ListTasks(listTaskInput)
