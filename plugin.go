@@ -3,14 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type Plugin struct {
@@ -343,9 +343,9 @@ func (p *Plugin) Exec() error {
 			ResourceArn: aws.String(val),
 			Tags:        taskDefinitionTags,
 		}
-		result, tag_err := svc.TagResource(taskDefinitionTagsInput)
-		if tag_err != nil {
-			return tag_err
+		result, tagErr := svc.TagResource(taskDefinitionTagsInput)
+		if tagErr != nil {
+			return tagErr
 		}
 		fmt.Println(result)
 	}
@@ -392,7 +392,12 @@ func (p *Plugin) Exec() error {
 		value := parts[1]
 		taskTags = append(taskTags, &ecs.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
-	fmt.Printf("task tags %p\n", taskTags)
+	fmt.Printf("task tags %#v\n", taskTags)
+	if len(taskTags) == 0 {
+		return nil
+	}
+	fmt.Println("wait 5s")
+	time.Sleep(time.Duration(5) * time.Second)
 	fmt.Println("begin tot list tasks")
 	listTaskInput := &ecs.ListTasksInput{
 		Cluster:     aws.String(p.Cluster),
@@ -400,30 +405,34 @@ func (p *Plugin) Exec() error {
 		ServiceName: sresp.Service.ServiceName,
 	}
 	listTaskOutput, err := svc.ListTasks(listTaskInput)
-	if err!=nil{
-		fmt.Printf("list tasks error:%s",err.Error())
+	if err != nil {
+		fmt.Println("fetch tasks error:", err.Error())
 		return err
 	}
 	ans := listTaskOutput.TaskArns
 
 	for listTaskOutput.NextToken != nil {
-		// TODO append(ans,fetched_ans)
-		fmt.Println("need fetch next page tasks")
-	}
-	if len(taskTags) != 0 {
-		for _, arn := range ans {
-			taskTagsInput := &ecs.TagResourceInput{
-				ResourceArn: arn,
-				Tags:        taskTags,
-			}
-			fmt.Printf("begin tag resource %s",arn)
-			result, tag_err := svc.TagResource(taskTagsInput)
-			if tag_err != nil {
-				fmt.Println(tag_err.Error())
-				return tag_err
-			}
-			fmt.Println(result)
+		fmt.Println("need fetch next page tasks,nexttoken = ", listTaskOutput.NextToken)
+		listTaskInput.NextToken = listTaskOutput.NextToken
+		listTaskOutput, err = svc.ListTasks(listTaskInput)
+		if err != nil {
+			fmt.Println("fetch tasks error:", err.Error())
+		}else{
+			ans  = append(ans,listTaskOutput.TaskArns...)
 		}
+	}
+	for _, arn := range ans {
+		taskTagsInput := &ecs.TagResourceInput{
+			ResourceArn: arn,
+			Tags:        taskTags,
+		}
+		fmt.Println("begin tag resource :", *arn)
+		result, tagErr := svc.TagResource(taskTagsInput)
+		if tagErr != nil {
+			fmt.Println(tagErr.Error())
+			return tagErr
+		}
+		fmt.Println(result)
 	}
 	return nil
 }
